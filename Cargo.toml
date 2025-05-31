@@ -1,0 +1,15 @@
+[package]
+name = "doris"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1.0.98"
+assert_no_alloc = "1.1.2"
+cpal = "0.15.3"
+crossterm = "0.29.0"
+eframe = "0.31.1"
+fundsp = "0.20.0"
+ratatui = "0.29.0"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_yaml = "0.9.34"
