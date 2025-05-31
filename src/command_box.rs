@@ -7,8 +7,13 @@ use ratatui::prelude::*;
 use crate::event_handler::EventHandler;
 use crate::frame_renderable::FrameRenderable;
 
+enum HistoryType {
+    Output, Echo, Error
+}
+
 pub struct CommandBox {
-    response: VecDeque<String>,
+    ac: Vec<String>,
+    history: VecDeque<(HistoryType, String)>,
     buf: String,
     ready: bool,
     cursor_position: usize,
@@ -16,7 +21,7 @@ pub struct CommandBox {
 
 impl CommandBox {
     pub fn new() -> Self {
-        Self { response: VecDeque::new(), buf: String::new(), ready: false, cursor_position: 0 }
+        Self { ac: Vec::new(), history: VecDeque::new(), buf: String::new(), ready: false, cursor_position: 0 }
     }
 
     pub fn get_command(&mut self) -> Option<String> {
@@ -31,11 +36,27 @@ impl CommandBox {
         }
     }
 
-    pub fn push_response(&mut self, resp: String) {
-        self.response.push_back(format!("<< {resp}"));
-        while self.response.len() > 200 {
-            let _ = self.response.pop_front();
+    pub fn push_output(&mut self, output: String) {
+        self.push(HistoryType::Output, output);
+    }
+
+    pub fn push_error(&mut self, error: String) {
+        self.push(HistoryType::Error, error);
+    }
+
+    fn echo(&mut self) {
+        self.push(HistoryType::Echo, self.buf.clone());
+    }
+
+    fn push(&mut self, ht: HistoryType, s: String) {
+        self.history.push_back((ht, s));
+        while self.history.len() > 200 {
+            let _ = self.history.pop_front();
         }
+    }
+
+    pub fn set_autocomplete(&mut self, options: Vec<String>) {
+        self.ac = options;
     }
 }
 
@@ -53,7 +74,7 @@ impl EventHandler for CommandBox {
                 self.cursor_position += 1;
             },
             KeyEvent { code: KeyCode::Enter, kind: KeyEventKind::Press, .. } => {
-                self.response.push_back(format!(">> {}", self.buf));
+                self.echo();
                 self.ready = true;
             },
             KeyEvent { code: KeyCode::Esc, kind: KeyEventKind::Press, .. } => {
@@ -92,7 +113,17 @@ impl FrameRenderable for CommandBox {
         block.render(area, frame.buffer_mut());
         let area = inner;
 
-        let mut lines: VecDeque<_> = self.response.iter().map(|r| Line::from(r.clone())).collect();
+        let mut lines: VecDeque<_> = self.history.iter().map(|(ht, s)| {
+            let (content_style, prefix) = match ht {
+                HistoryType::Echo => (Style::new(), ">> "),
+                HistoryType::Output => (Style::new().blue(), "   "),
+                HistoryType::Error => (Style::new().red(), "!  "),
+            };
+            Line::from(vec![
+                Span::styled(prefix, Style::new().dim()),
+                Span::styled(s, content_style)
+            ])
+        }).collect();
         let resp_h = area.height as usize;
         while lines.len() < resp_h {
             lines.push_front(Line::from(""));
@@ -101,7 +132,10 @@ impl FrameRenderable for CommandBox {
             lines.pop_front();
         }
 
-        let line = Line::from(format!(">> {}", self.buf));
+        let line = Line::from(vec![
+            Span::styled(">> ", Style::new().dim()),
+            Span::raw(&self.buf),
+        ]);
         lines.push_back(line);
         let lines: Vec<_> = lines.into_iter().collect();
         let para = Paragraph::new(lines);
