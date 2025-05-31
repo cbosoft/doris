@@ -73,6 +73,12 @@ impl CommandBox {
         }
         String::new()
     }
+
+    fn accept_autocomplete(&mut self) {
+        let ac = self.autocomplete();
+        self.buf += &ac;
+        self.cursor_position = self.buf.len();
+    }
 }
 
 
@@ -100,12 +106,15 @@ impl EventHandler for CommandBox {
                 self.cursor_position = self.cursor_position.saturating_sub(1);
             },
             KeyEvent { code: KeyCode::Right, kind: KeyEventKind::Press, .. } => {
-                self.cursor_position = self.cursor_position.saturating_add(1).min(self.buf.len());
+                if self.cursor_position == self.buf.len() {
+                    self.accept_autocomplete();
+                }
+                else {
+                    self.cursor_position = self.cursor_position.saturating_add(1);
+                }
             },
             KeyEvent { code: KeyCode::Tab, kind: KeyEventKind::Press, .. } => {
-                let ac = self.autocomplete();
-                self.buf += &ac;
-                self.cursor_position = self.buf.len();
+                self.accept_autocomplete();
             },
             KeyEvent { code: KeyCode::Backspace, kind: KeyEventKind::Press, .. } => {
                 if (self.cursor_position > 0) && (self.buf.len() > 0) {
