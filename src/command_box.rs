@@ -58,6 +58,21 @@ impl CommandBox {
     pub fn set_autocomplete(&mut self, options: Vec<String>) {
         self.ac = options;
     }
+
+    fn autocomplete(&self) -> String {
+        if self.buf.len() == 0 {
+            return String::new();
+        }
+
+        for opt in self.ac.iter() {
+            if opt.starts_with(&self.buf) {
+                let opt: Vec<_> = opt.chars().rev().take(opt.len() - self.buf.len()).collect();
+                let opt: String = opt.into_iter().rev().collect();
+                return opt;
+            }
+        }
+        String::new()
+    }
 }
 
 
@@ -86,6 +101,11 @@ impl EventHandler for CommandBox {
             },
             KeyEvent { code: KeyCode::Right, kind: KeyEventKind::Press, .. } => {
                 self.cursor_position = self.cursor_position.saturating_add(1).min(self.buf.len());
+            },
+            KeyEvent { code: KeyCode::Tab, kind: KeyEventKind::Press, .. } => {
+                let ac = self.autocomplete();
+                self.buf += &ac;
+                self.cursor_position = self.buf.len();
             },
             KeyEvent { code: KeyCode::Backspace, kind: KeyEventKind::Press, .. } => {
                 if (self.cursor_position > 0) && (self.buf.len() > 0) {
@@ -135,7 +155,9 @@ impl FrameRenderable for CommandBox {
         let line = Line::from(vec![
             Span::styled(">> ", Style::new().dim()),
             Span::raw(&self.buf),
+            Span::styled(self.autocomplete(), Style::new().dark_gray()),
         ]);
+
         lines.push_back(line);
         let lines: Vec<_> = lines.into_iter().collect();
         let para = Paragraph::new(lines);
