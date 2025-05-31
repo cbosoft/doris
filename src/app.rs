@@ -6,7 +6,7 @@ use crossterm::{event, event::*};
 use crossterm::event::{KeyCode, KeyEventKind};
 use strum::{EnumIter, IntoEnumIterator};
 
-use crate::{command_box::CommandBox, event_handler::EventHandler};
+use crate::{command_box::CommandBox, event_handler::EventHandler, track::Track};
 use crate::frame_renderable::FrameRenderable;
 
 #[derive(EnumIter)]
@@ -43,16 +43,19 @@ impl From<AppCommand> for String {
 }
 
 pub struct App {
+    net: Net,
+    track: Track,
+    current_patch: Option<String>,
+    current_sequence: Option<String>,
     cbox: CommandBox,
-    pitch: Shared,
 }
 
 
 impl App {
-    pub fn new(pitch: Shared) -> Self {
+    pub fn new(net: Net) -> Self {
         let mut cbox = CommandBox::new();
         cbox.set_autocomplete(AppCommand::list_commands());
-        Self { cbox, pitch }
+        Self { cbox, track: Track::new(), current_patch: None, current_sequence: None, net }
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {

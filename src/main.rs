@@ -3,8 +3,8 @@ mod command_box;
 mod event_handler;
 mod frame_renderable;
 mod patch;
-
-use std::time::Duration;
+mod sequence;
+mod track;
 
 use assert_no_alloc::*;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -43,17 +43,20 @@ where
     let channels = config.channels as usize;
 
     let patch = Patch::from_file("test.yaml").unwrap();
-    let (f, c) = patch.create_nets();
-    let f = unit::<U1, U1>(Box::new(f));
-    let c = unit::<U1, U1>(Box::new(c));
+    for r in patch.branch_reprs() {
+        eprintln!("{r}");
+    }
+    // let (f, c) = patch.create_nets();
+    // let f = unit::<U1, U1>(Box::new(f));
+    // let c = unit::<U1, U1>(Box::new(c));
 
-    let pitch = shared(150.0);
+    //let pitch = shared(150.0);
 
     let mut net = Net::new(0, 2);
-    let (mut s, su) = snoop(32);
-    net.chain(Box::new(
-            (var(&pitch) >> f) * (zero() >> add(1.0) >> c >> su) >> pan(0.0)
-    ));
+    // let (mut s, su) = snoop(32);
+    // net.chain(Box::new(
+    //         (var(&pitch) >> f) * (zero() >> add(1.0) >> c) >> pan(0.0)
+    // ));
 
     net.check();
     net.set_sample_rate(sample_rate);
@@ -83,7 +86,7 @@ where
     //     }
     // }
 
-    app::App::new(pitch).run().unwrap();
+    app::App::new(net).run().unwrap();
     Ok(())
 }
 
