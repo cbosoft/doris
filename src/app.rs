@@ -1,23 +1,45 @@
 use std::time::Duration;
 
-use fundsp::shared::Shared;
-use ratatui::{layout::{Constraint, Direction, Layout, Rect}, widgets::{Block, Borders, Widget}, Frame};
+use fundsp::hacker::*;
+use ratatui::{layout::{Constraint, Direction, Layout, Rect}, widgets::{Block, Borders, Tabs, Widget}, Frame};
 use crossterm::{event, event::*};
 use crossterm::event::{KeyCode, KeyEventKind};
-use strum::{EnumIter, IntoEnumIterator};
 
 use crate::{command_box::CommandBox, event_handler::EventHandler, track::Track};
 use crate::frame_renderable::FrameRenderable;
 
-#[derive(EnumIter)]
+
+#[derive(Debug)]
+pub enum Arg {
+    None,
+    Path(String),
+    PatchName,
+    NewPatchName,
+    SequenceName,
+    NewSequenceName,
+    // TODO: others
+}
+
+#[derive(Debug)]
 enum AppCommand {
-    PitchUp,
-    PitchDown
+    Exit,
+    LoadTrack(String),
+    EditPatch(String),
+    CreatePatch(String),
+    CreateSequence(String)
+        // TODO: others
 }
 
 impl AppCommand {
-    fn list_commands() -> Vec<String> {
-        Self::iter().map(|v| v.into()).collect()
+    fn list_commands() -> Vec<(String, Arg)> {
+        vec![
+            ("exit".into(), Arg::None),
+            ("load track".into(), Arg::Path("*.yaml".into())),
+            ("create patch".into(), Arg::NewPatchName),
+            ("edit patch".into(), Arg::PatchName),
+            ("create sequence".into(), Arg::NewSequenceName),
+            ("edit sequence".into(), Arg::SequenceName),
+        ]
     }
 }
 
@@ -25,22 +47,18 @@ impl TryFrom<&str> for AppCommand {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        match value {
-            "pitch up" => Ok(Self::PitchUp),
-            "pitch down" => Ok(Self::PitchDown),
+        let parts: Vec<_> = value.split(" ").map(|v|v).collect();
+        let p1 = parts.get(0).cloned();
+        let p2 = parts.get(1).cloned();
+        let p3 = parts.get(2).cloned();
+        match (p1, p2, p3) {
+            (Some("exit"), None, None) => Ok(AppCommand::Exit),
+            (Some("load"), Some("track"), Some(s)) => Ok(AppCommand::LoadTrack(s.into())),
             _ => Err(format!("unrecognised command \"{value}\""))
         }
     }
 }
 
-impl From<AppCommand> for String {
-    fn from(value: AppCommand) -> Self {
-        match value {
-            AppCommand::PitchUp => "pitch up".into(),
-            AppCommand::PitchDown => "pitch down".into(),
-        }
-    }
-}
 
 pub struct App {
     net: Net,
@@ -70,37 +88,40 @@ impl App {
                 break;
             }
 
+            self.cbox.update_autocomplete();
+
             if let Some(cmd) = self.cbox.get_command() {
                 // run command
                 match AppCommand::try_from(cmd.as_str()) {
                     Ok(cmd) => {
                         match cmd {
-                            AppCommand::PitchUp => {
-                                self.pitch_up();
+                            AppCommand::Exit => {
+                                break;
                             },
-                            AppCommand::PitchDown => {
-                                self.pitch_down();
+                            AppCommand::LoadTrack(path) => {
+                                match Track::from_file(&path) {
+                                    Ok(track) => {
+                                        self.track = track;
+                                        self.cbox.push_output(format!("Loaded track from {path}."));
+                                    }
+                                    Err(e) => {
+                                        self.cbox.push_error(format!("Failed to load track from {path}."));
+                                    }
+                                }
                             },
+                            _ => {
+                                self.cbox.push_error(format!("Unhandled cmd {cmd:?}"));
+                            }
                         }
                     },
                     Err(m) => {
-                        self.cbox.push_error(format!("Error: \"{m}\""));
+                        self.cbox.push_error(format!("Error: {m}"));
                     }
                 }
             }
         }
 
         Ok(())
-    }
-
-    fn pitch_up(&mut self) {
-        let new_pitch = (self.pitch.value() + 10.0).min(500.0);
-        self.pitch.set(new_pitch);
-    }
-
-    fn pitch_down(&mut self) {
-        let new_pitch = (self.pitch.value() - 10.0).max(50.0);
-        self.pitch.set(new_pitch);
     }
 
     fn selected<'a>(&'a mut self) -> &'a mut dyn EventHandler {
@@ -120,11 +141,9 @@ impl App {
                             Ok(true)
                         },
                         KeyEvent { code: KeyCode::Up, kind: KeyEventKind::Press, ..} => {
-                            self.pitch_up();
                             Ok(false)
                         },
                         KeyEvent { code: KeyCode::Down, kind: KeyEventKind::Press, ..} => {
-                            self.pitch_down();
                             Ok(false)
                         },
                         kev => selected.handle_key(kev)
@@ -149,24 +168,32 @@ impl Drop for App {
 
 impl FrameRenderable for App {
     fn draw_into(&self, frame: &mut Frame, area: Rect) {
-        let outer = Layout::new(Direction::Vertical, vec![
-                Constraint::Percentage(70),
-                Constraint::Max(1),
-                Constraint::Min(10),
+        let [workspace, _, bottom] = Layout::new(Direction::Vertical, vec![
+                Constraint::Min(50),
+                Constraint::Length(1),
+                Constraint::Max(10),
             ])
-            .split(area)
+            .areas(area)
             ;
 
-        let inner = Layout::new(Direction::Horizontal, vec![
+
+        let [_, cli, _] = Layout::new(Direction::Horizontal, vec![
                 Constraint::Min(1),
                 Constraint::Percentage(50),
                 Constraint::Min(1),
             ])
-            .split(outer[2]);
+            .areas(bottom);
+
+        let [_, tab_area] = Layout::new(Direction::Horizontal, vec![
+            Constraint::Length(3), Constraint::Min(20)
+        ]).areas(workspace);
 
         let block1 = Block::new().borders(Borders::ALL);
-        block1.render(outer[0], frame.buffer_mut());
+        let workspace_area = block1.inner(workspace);
+        block1.render(workspace, frame.buffer_mut());
+        let tabs = Tabs::new(vec!["1/Patch", "2/Sequence", "3/Play"]);
+        tabs.render(tab_area, frame.buffer_mut());
 
-        self.cbox.draw_into(frame, inner[1]);
+        self.cbox.draw_into(frame, cli);
     }
 }

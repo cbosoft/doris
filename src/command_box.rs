@@ -4,6 +4,7 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use ratatui::prelude::*;
 
+use crate::app::Arg;
 use crate::event_handler::EventHandler;
 use crate::frame_renderable::FrameRenderable;
 
@@ -12,7 +13,9 @@ enum HistoryType {
 }
 
 pub struct CommandBox {
-    ac: Vec<String>,
+    ac: Vec<(String, Arg)>,
+    ac_suggestions: Vec<(String, String)>,
+    ac_selection: usize,
     history: VecDeque<(HistoryType, String)>,
     buf: String,
     ready: bool,
@@ -21,7 +24,15 @@ pub struct CommandBox {
 
 impl CommandBox {
     pub fn new() -> Self {
-        Self { ac: Vec::new(), history: VecDeque::new(), buf: String::new(), ready: false, cursor_position: 0 }
+        Self {
+            ac: Vec::new(),
+            ac_suggestions: Vec::new(),
+            ac_selection: 0,
+            history: VecDeque::new(),
+            buf: String::new(),
+            ready: false,
+            cursor_position: 0,
+        }
     }
 
     pub fn get_command(&mut self) -> Option<String> {
@@ -55,28 +66,52 @@ impl CommandBox {
         }
     }
 
-    pub fn set_autocomplete(&mut self, options: Vec<String>) {
+    pub fn set_autocomplete(&mut self, options: Vec<(String, Arg)>) {
         self.ac = options;
     }
 
-    fn autocomplete(&self) -> String {
-        if self.buf.len() == 0 {
-            return String::new();
-        }
-
-        for opt in self.ac.iter() {
-            if opt.starts_with(&self.buf) {
-                let opt: Vec<_> = opt.chars().rev().take(opt.len() - self.buf.len()).collect();
-                let opt: String = opt.into_iter().rev().collect();
-                return opt;
+    pub fn update_autocomplete(&mut self) {
+        let mut suggestions = Vec::new();
+        for (stem, arg) in self.ac.iter() {
+            if self.buf.starts_with(stem) || (&self.buf == stem) {
+                // complete command, suggest values for args
+                // TODO
+                match arg {
+                    Arg::None => { },
+                    Arg::NewPatchName|Arg::SequenceName|Arg::PatchName|Arg::NewSequenceName => { suggestions.push((format!("{stem} "), format!("$name"))) },
+                    Arg::Path(patt) => {suggestions.push((format!("{stem} "), format!("$path/{patt}"))) }
+                    _ => { /*TODO*/ }
+                }
+            }
+            else if stem.starts_with(&self.buf) {
+                // incomplete command, suggest commands + arg proto
+                match arg {
+                    Arg::None => { suggestions.push((stem.clone(), String::new())) },
+                    Arg::NewPatchName|Arg::SequenceName|Arg::PatchName|Arg::NewSequenceName => { suggestions.push((format!("{stem} "), format!("$name"))) },
+                    Arg::Path(patt) => {suggestions.push((format!("{stem} "), format!("$path/{patt}"))) }
+                    _ => { /*TODO*/ }
+                }
             }
         }
-        String::new()
+        self.ac_suggestions = suggestions;
     }
 
-    fn accept_autocomplete(&mut self) {
-        let ac = self.autocomplete();
-        self.buf += &ac;
+    fn ac_next(&mut self) {
+        let n_suggest = self.ac_suggestions.len();
+        if n_suggest > 0 {
+            let mut i = self.ac_selection.saturating_add(1);
+            if i >= n_suggest {
+                i = 0;
+            }
+            self.ac_selection = i;
+        }
+        else {
+            self.ac_selection = 0;
+        }
+    }
+
+    fn ac_select(&mut self) {
+        self.buf = self.ac_suggestions[self.ac_selection].0.clone();
         self.cursor_position = self.buf.len();
     }
 }
@@ -107,14 +142,14 @@ impl EventHandler for CommandBox {
             },
             KeyEvent { code: KeyCode::Right, kind: KeyEventKind::Press, .. } => {
                 if self.cursor_position == self.buf.len() {
-                    self.accept_autocomplete();
+                    self.ac_select();
                 }
                 else {
                     self.cursor_position = self.cursor_position.saturating_add(1);
                 }
             },
             KeyEvent { code: KeyCode::Tab, kind: KeyEventKind::Press, .. } => {
-                self.accept_autocomplete();
+                self.ac_next();
             },
             KeyEvent { code: KeyCode::Backspace, kind: KeyEventKind::Press, .. } => {
                 if (self.cursor_position > 0) && (self.buf.len() > 0) {
@@ -137,7 +172,7 @@ impl EventHandler for CommandBox {
 
 impl FrameRenderable for CommandBox {
     fn draw_into(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::new().borders(Borders::ALL);
+        let block = Block::new().borders(Borders::ALL).title_bottom(Line::from("Tab for options; right arrow to select; enter to run.").centered());
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
         let area = inner;
@@ -161,10 +196,27 @@ impl FrameRenderable for CommandBox {
             lines.pop_front();
         }
 
+        let n_suggest = self.ac_suggestions.len();
+        let ac = if n_suggest > 0 {
+            let (s, a) = self.ac_suggestions[self.ac_selection.min(n_suggest - 1)].clone();
+            let n = s.chars().count();
+            let s = if n > self.buf.len() {
+                let chars: Vec<_> = s.chars().rev().take(n - self.buf.chars().count()).collect();
+                chars.into_iter().rev().collect()
+            }
+            else {
+                String::new()
+            };
+            format!("{s}{a}")
+        }
+        else {
+            String::new()
+        };
+
         let line = Line::from(vec![
             Span::styled(">> ", Style::new().dim()),
             Span::raw(&self.buf),
-            Span::styled(self.autocomplete(), Style::new().dark_gray()),
+            Span::styled(ac, Style::new().dark_gray()),
         ]);
 
         lines.push_back(line);
