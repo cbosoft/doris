@@ -124,7 +124,9 @@ impl App {
         let mut term = ratatui::init();
 
         let mut stdout = stdout();
-        execute!(stdout, PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)).unwrap();
+        execute!(stdout, PushKeyboardEnhancementFlags(
+            KeyboardEnhancementFlags::REPORT_EVENT_TYPES | KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
+        )).unwrap();
 
         loop {
             term.draw(|f| {
