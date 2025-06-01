@@ -33,20 +33,21 @@ impl KB_Key {
     }
 
     pub fn get_colour(&self) -> Color {
+        let gry = |i| Color::Rgb(i, i, i);
         if self.is_dim {
             if self.is_black_key {
-                Color::Black
+                gry(20)
             }
             else {
-                Color::DarkGray
+                gry(60)
             }
         }
         else {
             if self.is_black_key {
-                Color::DarkGray
+                gry(50)
             }
             else {
-                Color::White
+                gry(200)
             }
         }
     }
@@ -60,6 +61,61 @@ impl Shape for KB_Key {
             for dy in 0..h {
                 painter.paint((self.x+dx) as usize, (self.y + dy) as usize, colour);
             }
+        }
+    }
+}
+
+enum KB_KeyState {
+    Neutral,
+    Pressed,
+    Dimmed,
+}
+
+struct KB_Keys {
+    pub state: Vec<KB_KeyState>,
+    pub area: Rect
+}
+
+impl Shape for KB_Keys {
+    fn draw(&self, painter: &mut ratatui::widgets::canvas::Painter) {
+        let ww = KB_Key::WHITE_KEY_WIDTH;
+        let bw = KB_Key::BLACK_KEY_WIDTH;
+        let g = 1;
+
+        let mut white_keys = Vec::new();
+        let mut black_keys = Vec::new();
+
+        for (i, state) in self.state.iter().enumerate() {
+            let oi = i % 12; 
+            let is_black_key = (oi == 1) || (oi == 3) || (oi == 6) || (oi == 8) || (oi == 10);
+            if is_black_key {
+                let j = white_keys.len();
+                black_keys.push((j, state));
+            }
+            else {
+                white_keys.push(state);
+            }
+        }
+        // let kw = (ww + g) * white_keys.len() as u16;
+        // TODO: centre keys, dont paint if offscreen
+
+        for (i, white_key_state) in white_keys.into_iter().enumerate() {
+            let x = (ww+g)*(i as u16);
+
+            let (dy, is_dim) = match white_key_state {
+                KB_KeyState::Dimmed => (0, true),
+                KB_KeyState::Neutral => (0, false),
+                KB_KeyState::Pressed => (1, false),
+            };
+            KB_Key { x, y: dy, is_black_key: false, is_dim}.draw(painter);
+        }
+        for (i, black_key_state) in black_keys.into_iter() {
+            let (dy, is_dim) = match black_key_state {
+                KB_KeyState::Dimmed => (0, true),
+                KB_KeyState::Neutral => (0, false),
+                KB_KeyState::Pressed => (1, false),
+            };
+            KB_Key { x: (ww+g)*(i as u16) - (bw/2) - g, y: dy, is_black_key: true, is_dim}.draw(painter);
         }
     }
 }
@@ -141,6 +197,10 @@ impl Keyboard {
 
     pub fn is_finished(&self) -> bool {
         self.finished
+    }
+
+    pub fn set_unfinished(&mut self) {
+        self.finished = false;
     }
 
     fn clear_notes(&mut self) {
@@ -234,38 +294,6 @@ impl EventHandler for Keyboard {
     }
 }
 
-impl Shape for Keyboard {
-    fn draw(&self, painter: &mut ratatui::widgets::canvas::Painter) {
-        let ww = KB_Key::WHITE_KEY_WIDTH;
-        let bw = KB_Key::BLACK_KEY_WIDTH;
-        let g = 1;
-
-        let mut j = 0;
-        for i in 0..15 {
-            let n = i % 7;
-            let jb = if (n != 0) && (n != 3) {
-                let oj = j;
-                j += 1;
-                Some(oj)
-            }
-            else {
-                None
-            };
-
-            if j >= self.notes.len() { break; }
-            let dy: u16 = if self.notes[j] { 1 } else { 0 };
-            KB_Key { x: (ww+g)*i, y: dy, is_black_key: false, is_dim: false}.draw(painter);
-            j += 1;
-
-            if let Some(j) = jb {
-                if j >= self.notes.len() { break; }
-                let dy: u16 = if self.notes[j] { 1 } else { 0 };
-                KB_Key { x: (ww+g)*i - (bw/2) - g, y: dy, is_black_key: true, is_dim: false}.draw(painter);
-            }
-        }
-    }
-}
-
 impl FrameRenderable for Keyboard {
     fn draw_into(&self, frame: &mut Frame, area: Rect) {
         // series of keys on a keyboard
@@ -274,7 +302,7 @@ impl FrameRenderable for Keyboard {
 
         let [_, kb_area, _] = Layout::new(Direction::Horizontal, vec![
             Constraint::Min(0),
-            Constraint::Length(2*octave_length),
+            Constraint::Length(4*octave_length),
             Constraint::Min(0),
         ]).areas(area);
         let [_, kb_area, _] = Layout::new(Direction::Vertical, vec![
@@ -283,17 +311,34 @@ impl FrameRenderable for Keyboard {
             Constraint::Min(0),
         ]).areas(kb_area);
 
+        let mut state = Vec::new();
+        for _ in 0..12 {
+            state.push(KB_KeyState::Dimmed);
+        }
+        for is_pressed in self.notes.iter() {
+            state.push(if *is_pressed {
+                KB_KeyState::Pressed
+            }
+            else {
+                KB_KeyState::Neutral
+            });
+        }
+        for _ in 0..12 {
+            state.push(KB_KeyState::Dimmed);
+        }
+        let keys = KB_Keys {area: kb_area, state };
+
         Canvas::default()
             .x_bounds([0.0, 108.0])
             .y_bounds([0.0, 20.0])
             .marker(Marker::Block)
-            .paint(|ctx| {
-                ctx.draw(self);
+            .paint(move |ctx| {
+                ctx.draw(&keys);
             })
             .render(kb_area, frame.buffer_mut());
 
-        frame.buffer_mut().set_string(kb_area.x, kb_area.y-1, format!("{}", self.octave), Style::new().dark_gray());
-        frame.buffer_mut().set_string(kb_area.x + octave_length - 4, kb_area.y-1, format!("{}", self.octave+1), Style::new().dark_gray());
-        frame.buffer_mut().set_string(kb_area.x + octave_length*2 - 8, kb_area.y-1, format!("{}", self.octave+2), Style::new().dark_gray());
+        // frame.buffer_mut().set_string(kb_area.x, kb_area.y-1, format!("{}", self.octave), Style::new().dark_gray());
+        // frame.buffer_mut().set_string(kb_area.x + octave_length - 4, kb_area.y-1, format!("{}", self.octave+1), Style::new().dark_gray());
+        // frame.buffer_mut().set_string(kb_area.x + octave_length*2 - 8, kb_area.y-1, format!("{}", self.octave+2), Style::new().dark_gray());
     }
 }
