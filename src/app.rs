@@ -22,8 +22,10 @@ pub enum Arg {
 
 #[derive(Debug)]
 enum AppCommand {
-    Exit,
+    Exit, Play,
     LoadTrack(String),
+    LoadPatch(String),
+    LoadSequence(String),
     EditPatch(String),
     CreatePatch(String),
     CreateSequence(String)
@@ -34,7 +36,10 @@ impl AppCommand {
     fn list_commands() -> Vec<(String, Arg)> {
         vec![
             ("exit".into(), Arg::None),
+            ("play".into(), Arg::None),
             ("load track".into(), Arg::Path("*.yaml".into())),
+            ("load patch".into(), Arg::Path("*.yaml".into())),
+            ("load sequence".into(), Arg::Path("*.yaml".into())),
             ("create patch".into(), Arg::NewPatchName),
             ("edit patch".into(), Arg::PatchName),
             ("create sequence".into(), Arg::NewSequenceName),
@@ -53,10 +58,17 @@ impl TryFrom<&str> for AppCommand {
         let p3 = parts.get(2).cloned();
         match (p1, p2, p3) {
             (Some("exit"), None, None) => Ok(AppCommand::Exit),
+            (Some("play"), None, None) => Ok(AppCommand::Play),
             (Some("load"), Some("track"), Some(s)) => Ok(AppCommand::LoadTrack(s.into())),
             _ => Err(format!("unrecognised command \"{value}\""))
         }
     }
+}
+
+#[derive(Clone, Copy)]
+enum Mode {
+    Command,
+    Play,
 }
 
 
@@ -66,6 +78,7 @@ pub struct App {
     patch: Patch,
     sequence: Sequence,
     cbox: CommandBox,
+    mode: Mode,
 }
 
 
@@ -88,44 +101,84 @@ impl App {
                 break;
             }
 
-            self.cbox.update_autocomplete();
-
-            if let Some(cmd) = self.cbox.get_command() {
-                // run command
-                match AppCommand::try_from(cmd.as_str()) {
-                    Ok(cmd) => {
-                        match cmd {
-                            AppCommand::Exit => {
-                                break;
-                            },
-                            AppCommand::LoadTrack(path) => {
-                                match Track::from_file(&path) {
-                                    Ok(track) => {
-                                        self.track = track;
-                                        self.cbox.push_output(format!("Loaded track from {path}."));
-                                    }
-                                    Err(e) => {
-                                        self.cbox.push_error(format!("Failed to load track from {path}."));
-                                    }
-                                }
-                            },
-                            _ => {
-                                self.cbox.push_error(format!("Unhandled cmd {cmd:?}"));
-                            }
-                        }
-                    },
-                    Err(m) => {
-                        self.cbox.push_error(format!("Error: {m}"));
-                    }
+            let should_stop = match self.mode {
+                Mode::Command => {
+                    self.run_mode_command()
                 }
+                Mode::Play => {
+                    self.run_mode_play()
+                }
+            }?;
+            if should_stop {
+                break;
             }
+
         }
 
         Ok(())
     }
 
+    fn run_mode_command(&mut self) -> anyhow::Result<bool> {
+        self.cbox.update_autocomplete();
+
+        if let Some(cmd) = self.cbox.get_command() {
+            // run command
+            match AppCommand::try_from(cmd.as_str()) {
+                Ok(cmd) => {
+                    match cmd {
+                        AppCommand::Exit => {
+                            return Ok(true);
+                        },
+                        AppCommand::LoadTrack(path) => {
+                            match Track::from_file(&path) {
+                                Ok(track) => {
+                                    self.track = track;
+                                    self.cbox.push_output(format!("Loaded track from \"{path}\"."));
+                                }
+                                Err(_) => {
+                                    self.cbox.push_error(format!("Failed to load track from \"{path}\"."));
+                                }
+                            }
+                        },
+                        AppCommand::LoadPatch(path) => {
+                            match Patch::from_file(&path) {
+                                Ok(patch) => {
+                                    self.patch = patch;
+                                    self.cbox.push_output(format!("Loaded patch from \"{path}\"."));
+                                }
+                                Err(_) => {
+                                    self.cbox.push_error(format!("Failed to load track from \"{path}\"."));
+                                }
+                            }
+                        },
+                        AppCommand::Play => {
+                            self.mode = Mode::Play;
+                        }
+                        _ => {
+                            self.cbox.push_error(format!("Unhandled cmd {cmd:?}"));
+                        }
+                    }
+                },
+                Err(m) => {
+                    self.cbox.push_error(format!("Error: {m}"));
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    fn run_mode_play(&mut self) -> anyhow::Result<bool> {
+        // get input from keyboard
+        // play it?
+        Ok(false)
+    }
+
     fn selected<'a>(&'a mut self) -> &'a mut dyn EventHandler {
-        &mut self.cbox
+        match self.mode {
+            Mode::Command => &mut self.cbox,
+            Mode::Play => &mut self.cbox, // TODO
+        }
     }
 
     fn process_events(&mut self) -> anyhow::Result<bool> {
@@ -184,16 +237,18 @@ impl FrameRenderable for App {
             ])
             .areas(bottom);
 
-        let [_, tab_area] = Layout::new(Direction::Horizontal, vec![
-            Constraint::Length(3), Constraint::Min(20)
-        ]).areas(workspace);
+        // let [_, tab_area] = Layout::new(Direction::Horizontal, vec![
+        //     Constraint::Length(3), Constraint::Min(20)
+        // ]).areas(workspace);
+        // let block1 = Block::new().borders(Borders::ALL);
+        // let workspace_area = block1.inner(workspace);
+        // block1.render(workspace, frame.buffer_mut());
+        // let tabs = Tabs::new(vec!["1/Patch", "2/Sequence", "3/Play"]);
+        // tabs.render(tab_area, frame.buffer_mut());
 
-        let block1 = Block::new().borders(Borders::ALL);
-        let workspace_area = block1.inner(workspace);
-        block1.render(workspace, frame.buffer_mut());
-        let tabs = Tabs::new(vec!["1/Patch", "2/Sequence", "3/Play"]);
-        tabs.render(tab_area, frame.buffer_mut());
-
-        self.cbox.draw_into(frame, cli);
+        match self.mode {
+            Mode::Command => { self.cbox.draw_into(frame, cli); },
+            Mode::Play => { /*self.kb.draw_into(frame, bottom); */ }
+        }
     }
 }
