@@ -172,6 +172,17 @@ impl EventHandler for CommandBox {
 
 impl FrameRenderable for CommandBox {
     fn draw_into(&self, frame: &mut Frame, area: Rect) {
+        let [_, area, _] = Layout::new(Direction::Horizontal, vec![
+            Constraint::Min(0),
+            Constraint::Length(70),
+            Constraint::Min(0),
+        ]).areas(area);
+        let [_, area, _] = Layout::new(Direction::Vertical, vec![
+            Constraint::Min(0),
+            Constraint::Length(16),
+            Constraint::Min(0),
+        ]).areas(area);
+
         let block = Block::new()
             .borders(Borders::ALL)
             .dim()
