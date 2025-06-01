@@ -172,7 +172,13 @@ impl EventHandler for CommandBox {
 
 impl FrameRenderable for CommandBox {
     fn draw_into(&self, frame: &mut Frame, area: Rect) {
-        let block = Block::new().borders(Borders::ALL).title_bottom(Line::from("Tab for options; right arrow to select; enter to run.").centered());
+        let block = Block::new()
+            .borders(Borders::ALL)
+            .dim()
+            .title_bottom(
+                Line::from("Tab for options; right arrow to select; enter to run.")
+                .centered()
+            );
         let inner = block.inner(area);
         block.render(area, frame.buffer_mut());
         let area = inner;
