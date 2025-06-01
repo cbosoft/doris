@@ -297,16 +297,7 @@ impl FrameRenderable for App {
                 Constraint::Length(1),
                 Constraint::Min(25),
             ])
-            .areas(area)
-            ;
-
-
-        let [_, cli, _] = Layout::new(Direction::Horizontal, vec![
-                Constraint::Min(0),
-                Constraint::Percentage(50),
-                Constraint::Min(0),
-            ])
-            .areas(bottom);
+            .areas(area);
 
         // let [_, tab_area] = Layout::new(Direction::Horizontal, vec![
         //     Constraint::Length(3), Constraint::Min(20)
