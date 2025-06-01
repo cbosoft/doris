@@ -124,7 +124,6 @@ impl App {
         let mut term = ratatui::init();
 
         let mut stdout = stdout();
-        execute!(stdout, PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)).unwrap();
         execute!(stdout, PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)).unwrap();
 
         loop {
@@ -284,10 +283,9 @@ impl App {
 
 impl Drop for App {
     fn drop(&mut self) {
-        ratatui::restore();
         let mut stdout = stdout();
         let _ = execute!(stdout, PopKeyboardEnhancementFlags);
-        let _ = execute!(stdout, PopKeyboardEnhancementFlags);
+        ratatui::restore();
     }
 }
 
