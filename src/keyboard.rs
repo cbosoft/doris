@@ -14,8 +14,39 @@ pub enum NoteEventKind {
     Start, Stop
 }
 
+pub enum Note {
+    A, ASharp, B, C, CSharp, D, DSharp, E, F, FSharp, G, GSharp, 
+}
+
+impl Note {
+    pub fn to_freq(&self) -> f32 {
+        // in 3rd
+        match self {
+            Self::C => 130.8,
+            Self::CSharp => 138.6,
+            Self::D => 146.8,
+            Self::DSharp => 155.6,
+            Self::E => 164.8,
+            Self::F => 174.6,
+            Self::FSharp => 185.0,
+            Self::G => 196.0,
+            Self::GSharp => 207.7,
+            Self::A => 220.0,
+            Self::ASharp => 233.1,
+            Self::B => 246.9,
+        }
+    }
+
+    pub fn to_freq_octave(&self, o: i32) -> f32 {
+        let m = 2f32.powi(o - 3);
+        self.to_freq()*m
+    }
+}
+
 pub struct NoteEvent {
     kind: NoteEventKind,
+    note: Note,
+    octave: i32,
 }
 
 pub struct Keyboard {
@@ -46,39 +77,57 @@ impl EventHandler for Keyboard {
                 self.finished = true;
             },
             KeyEvent { code: KeyCode::Char(c), modifiers: KeyModifiers::NONE, kind, .. } => {
-                let j = match c {
-                    'q' => Some(0),  // C
-                    '2' => Some(1),  // C#
-                    'w' => Some(2),  // D
-                    '3' => Some(3),  // D#
-                    'e' => Some(4),  // E/Fb
-                    'r' => Some(5),  // F/E#
-                    '5' => Some(6),  // F#
-                    't' => Some(7),  // G
-                    '6' => Some(8),  // G#
-                    'y' => Some(9),  // A
-                    '7' => Some(10), // A#
-                    'u' => Some(11), // B
+                let data = match c {
+                    'q' => Some((0,  Note::C,      0)),
+                    '2' => Some((1,  Note::CSharp, 0)),
+                    'w' => Some((2,  Note::D,      0)),
+                    '3' => Some((3,  Note::DSharp, 0)),
+                    'e' => Some((4,  Note::E,      0)),
+                    'r' => Some((5,  Note::F,      0)),
+                    '5' => Some((6,  Note::FSharp, 0)),
+                    't' => Some((7,  Note::G,      0)),
+                    '6' => Some((8,  Note::GSharp, 0)),
+                    'y' => Some((9,  Note::A,      0)),
+                    '7' => Some((10, Note::ASharp, 0)),
+                    'u' => Some((10, Note::B,      0)),
 
-                    'c' => Some(12), // C
-                    'f' => Some(13), // C#
-                    'v' => Some(14), // D
-                    'g' => Some(15), // D#
-                    'b' => Some(16), // E
-                    'n' => Some(17), // F
-                    'j' => Some(18), // F#
-                    'm' => Some(19), // G
-                    'k' => Some(20), // G#
-                    ',' => Some(21), // A
-                    'l' => Some(22), // A#
-                    '.' => Some(23), // B
-                                     
-                    '/' => Some(24), // C
+                    'c' => Some((10, Note::C,      1)),
+                    'f' => Some((10, Note::CSharp, 1)),
+                    'v' => Some((10, Note::D,      1)),
+                    'g' => Some((10, Note::DSharp, 1)),
+                    'b' => Some((10, Note::E,      1)),
+                    'n' => Some((10, Note::F,      1)),
+                    'j' => Some((10, Note::FSharp, 1)),
+                    'm' => Some((10, Note::G,      1)),
+                    'k' => Some((10, Note::GSharp, 1)),
+                    ',' => Some((10, Note::A,      1)),
+                    'l' => Some((10, Note::ASharp, 1)),
+                    '.' => Some((10, Note::B,      1)),
+
+                    '/' => Some((10, Note::C,      2)),
                     _ => None
                 };
 
-                if let Some(j) = j {
-                    self.notes[j] = matches!(kind, KeyEventKind::Press);
+                if let Some((j, note, doctave)) = data {
+                    match kind {
+                        KeyEventKind::Press => {
+                            self.notes[j] = true;
+                            self.events.push(NoteEvent {
+                                kind: NoteEventKind::Start,
+                                note,
+                                octave: self.octave + doctave
+                            });
+                        },
+                        KeyEventKind::Release => {
+                            self.notes[j] = false;
+                            self.events.push(NoteEvent {
+                                kind: NoteEventKind::Stop,
+                                note,
+                                octave: self.octave + doctave
+                            });
+                        },
+                        _ => ()
+                    }
                 }
             },
             _ => ()
