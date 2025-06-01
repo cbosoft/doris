@@ -10,13 +10,68 @@ use crate::event_handler::EventHandler;
 use crate::frame_renderable::FrameRenderable;
 
 
+struct KB_Key {
+    pub x: u16,
+    pub y: u16,
+    pub is_black_key: bool,
+    pub is_dim: bool
+}
+
+impl KB_Key {
+    const WHITE_KEY_WIDTH: u16 = 4;
+    const WHITE_KEY_HEIGHT: u16 = 15;
+    const BLACK_KEY_WIDTH: u16 = 3;
+    const BLACK_KEY_HEIGHT: u16 = 7;
+
+    pub fn get_size(&self) -> (u16, u16) {
+        if self.is_black_key {
+            (Self::BLACK_KEY_WIDTH, Self::BLACK_KEY_HEIGHT)
+        }
+        else {
+            (Self::WHITE_KEY_WIDTH, Self::WHITE_KEY_HEIGHT)
+        }
+    }
+
+    pub fn get_colour(&self) -> Color {
+        if self.is_dim {
+            if self.is_black_key {
+                Color::Black
+            }
+            else {
+                Color::DarkGray
+            }
+        }
+        else {
+            if self.is_black_key {
+                Color::DarkGray
+            }
+            else {
+                Color::White
+            }
+        }
+    }
+}
+
+impl Shape for KB_Key {
+    fn draw(&self, painter: &mut ratatui::widgets::canvas::Painter) {
+        let colour = self.get_colour();
+        let (w, h) = self.get_size();
+        for dx in 0..w {
+            for dy in 0..h {
+                painter.paint((self.x+dx) as usize, (self.y + dy) as usize, colour);
+            }
+        }
+    }
+}
+
+
 pub enum NoteEventKind {
     Start, Stop
 }
 
 #[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Note {
-    A, ASharp, B, C, CSharp, D, DSharp, E, F, FSharp, G, GSharp, 
+    C, CSharp, D, DSharp, E, F, FSharp, G, GSharp, A, ASharp, B, 
 }
 
 impl Note {
@@ -41,6 +96,24 @@ impl Note {
     pub fn to_freq_octave(&self, o: i32) -> f32 {
         let m = 2f32.powi(o - 3);
         self.to_freq()*m
+    }
+
+    pub fn from_index(i: usize) -> Self {
+         match i % 12 {
+            0 => Self::C,
+            1 => Self::CSharp,
+            2 => Self::D,
+            3 => Self::DSharp,
+            4 => Self::E,
+            5 => Self::F,
+            6 => Self::FSharp,
+            7 => Self::G,
+            8 => Self::GSharp,
+            9 => Self::A,
+            10 => Self::ASharp,
+            11 => Self::B, 
+            _ => { panic!() }
+        }
     }
 }
 
@@ -69,6 +142,27 @@ impl Keyboard {
     pub fn is_finished(&self) -> bool {
         self.finished
     }
+
+    fn clear_notes(&mut self) {
+        for i in 0..self.notes.len() {
+            if self.notes[i] {
+                let note_index = i % 12;
+                let note = Note::from_index(note_index);
+                let octave = self.octave + (i as i32 / 12);
+                self.events.push(NoteEvent { kind: NoteEventKind::Stop, note, octave });
+            }
+        }
+    }
+
+    pub fn incr_octave(&mut self) {
+        self.clear_notes();
+        self.octave = (self.octave + 1).min(7);
+    }
+
+    pub fn decr_octave(&mut self) {
+        self.clear_notes();
+        self.octave = (self.octave - 1).max(-2);
+    }
 }
 
 impl EventHandler for Keyboard {
@@ -77,6 +171,8 @@ impl EventHandler for Keyboard {
             KeyEvent { code: KeyCode::Esc, modifiers: KeyModifiers::NONE, kind: KeyEventKind::Press, .. } => {
                 self.finished = true;
             },
+            KeyEvent { code: KeyCode::Char('>'), modifiers: KeyModifiers::NONE, kind: KeyEventKind::Press, .. } => { self.incr_octave(); },
+            KeyEvent { code: KeyCode::Char('<'), modifiers: KeyModifiers::NONE, kind: KeyEventKind::Press, .. } => { self.decr_octave(); },
             KeyEvent { code: KeyCode::Char(c), modifiers: KeyModifiers::NONE, kind, .. } => {
                 let data = match c {
                     'q' => Some((0,  Note::C,      0)),
@@ -140,12 +236,8 @@ impl EventHandler for Keyboard {
 
 impl Shape for Keyboard {
     fn draw(&self, painter: &mut ratatui::widgets::canvas::Painter) {
-        let cw = Color::White;
-        let cb = Color::DarkGray;
-        let ww = 4;
-        let wh = 15;
-        let bw = 3;
-        let bh = 7;
+        let ww = KB_Key::WHITE_KEY_WIDTH;
+        let bw = KB_Key::BLACK_KEY_WIDTH;
         let g = 1;
 
         let mut j = 0;
@@ -161,26 +253,15 @@ impl Shape for Keyboard {
             };
 
             if j >= self.notes.len() { break; }
-            let dy: usize = if self.notes[j] { 1 } else { 0 };
-            for x in 0..ww {
-                for y in 0..wh {
-                    let x = x + (ww+g)*i;
-                    painter.paint(x, y + dy, cw);
-                }
-            }
+            let dy: u16 = if self.notes[j] { 1 } else { 0 };
+            KB_Key { x: (ww+g)*i, y: dy, is_black_key: false, is_dim: false}.draw(painter);
             j += 1;
 
             if let Some(j) = jb {
                 if j >= self.notes.len() { break; }
-                let dy: usize = if self.notes[j] { 1 } else { 0 };
-                for x in 0..bw {
-                    for y in 0..bh {
-                        let x = x + (ww+g)*i - (bw/2) - g;
-                        painter.paint(x, y+dy, cb);
-                    }
-                }
+                let dy: u16 = if self.notes[j] { 1 } else { 0 };
+                KB_Key { x: (ww+g)*i - (bw/2) - g, y: dy, is_black_key: true, is_dim: false}.draw(painter);
             }
-
         }
     }
 }
@@ -189,15 +270,15 @@ impl FrameRenderable for Keyboard {
     fn draw_into(&self, frame: &mut Frame, area: Rect) {
         // series of keys on a keyboard
         let n = (self.notes.len() / 12) as u16 * 7 + 1;
-        let l = (n*4) + (n-1);
+        let octave_length = 7*KB_Key::WHITE_KEY_WIDTH + 11;
 
         let [_, kb_area, _] = Layout::new(Direction::Horizontal, vec![
             Constraint::Min(0),
-            Constraint::Length(l),
+            Constraint::Length(2*octave_length),
             Constraint::Min(0),
         ]).areas(area);
         let [_, kb_area, _] = Layout::new(Direction::Vertical, vec![
-            Constraint::Min(0),
+            Constraint::Length(1),
             Constraint::Length(16),
             Constraint::Min(0),
         ]).areas(kb_area);
@@ -210,5 +291,9 @@ impl FrameRenderable for Keyboard {
                 ctx.draw(self);
             })
             .render(kb_area, frame.buffer_mut());
+
+        frame.buffer_mut().set_string(kb_area.x, kb_area.y-1, format!("{}", self.octave), Style::new().dark_gray());
+        frame.buffer_mut().set_string(kb_area.x + octave_length - 4, kb_area.y-1, format!("{}", self.octave+1), Style::new().dark_gray());
+        frame.buffer_mut().set_string(kb_area.x + octave_length*2 - 8, kb_area.y-1, format!("{}", self.octave+2), Style::new().dark_gray());
     }
 }
