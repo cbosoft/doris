@@ -207,6 +207,7 @@ impl App {
     fn run_mode_play(&mut self) -> anyhow::Result<bool> {
         if self.kb.is_finished() {
             self.mode = Mode::Command;
+            self.kb.set_unfinished();
         }
 
         let events = self.kb.get_events();
