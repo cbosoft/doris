@@ -43,20 +43,19 @@ where
     let sample_rate = config.sample_rate.0 as f64;
     let channels = config.channels as usize;
 
-    let patch = Patch::from_file("test.yaml").unwrap();
-    for r in patch.branch_reprs() {
+    let patch = Patch::new();
+    for r in patch.branch_reprs()? {
         eprintln!("{r}");
     }
-    // let (f, c) = patch.create_nets();
-    // let f = unit::<U1, U1>(Box::new(f));
-    // let c = unit::<U1, U1>(Box::new(c));
+    let pn = patch.create_net().unwrap();
+    // let p = unit::<U2, U1>(Box::new(pn));
 
     //let pitch = shared(150.0);
 
     let mut net = Net::new(0, 2);
     // let (mut s, su) = snoop(32);
     // net.chain(Box::new(
-    //         (var(&pitch) >> f) * (zero() >> add(1.0) >> c) >> pan(0.0)
+    //         (var(&pitch) | constant(1.0)) >> p >> pan(0.0)
     // ));
 
     net.check();
@@ -87,7 +86,7 @@ where
     //     }
     // }
 
-    app::App::new(net).run().unwrap();
+    app::App::new(net, sample_rate).run().unwrap();
     Ok(())
 }
 

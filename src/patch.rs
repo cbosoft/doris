@@ -28,7 +28,7 @@ impl PatchNode {
             Self::SpecifiedSine { freq }    => { net.push(Box::new(sine_hz(*freq))) },
             Self::SpecifiedSaw { freq }     => { net.push(Box::new(saw_hz(*freq))) },
             Self::SpecifiedSquare { freq }  => { net.push(Box::new(square_hz(*freq))) },
-            Self::Mux                       => { todo!(); }
+            Self::Mux                       => { net.push(Box::new( map(|f: &Frame<f32, U2>| f[0]*f[1]) )) }
             Self::Pan { balance }           => { net.push(Box::new(pan(*balance))) },
         }
     }
@@ -43,7 +43,15 @@ pub struct Patch {
 
 impl Patch {
     pub fn new() -> Self {
-        Self { nodes: HashMap::new(), edges: Vec::new() }
+        let mut nodes = HashMap::new();
+        nodes.insert("osc1".into(), PatchNode::Saw);
+        nodes.insert("mux".into(), PatchNode::Mux);
+        let mut edges = Vec::new();
+        edges.push(("freq".into(), "osc1".into()));
+        edges.push(("osc1".into(), "mux:0".into()));
+        edges.push(("ctl".into(), "mux:1".into()));
+        edges.push(("mux".into(), "out".into()));
+        Self { nodes, edges }
     }
 
     pub fn from_file(p: &str) -> anyhow::Result<Self> {
@@ -52,12 +60,15 @@ impl Patch {
         Ok(rv)
     }
 
-    fn get_branches(end: String, edges: &Vec<(String, String)>) -> Vec<Vec<String>> {
+    fn get_branches(end: String, edges: &Vec<(String, String)>) -> anyhow::Result<Vec<Vec<String>>> {
         let mut rv = Vec::new();
 
         for (i, o) in edges.iter() {
-            if o == &end {
-                let child_branches = Self::get_branches(i.clone(), edges);
+            let (i, _) = Self::parse_node_name(i)?;
+            let (o, _) = Self::parse_node_name(o)?;
+
+            if o == end {
+                let child_branches = Self::get_branches(i.clone(), edges)?;
                 if child_branches.len() == 0 {
                     rv.push(vec![i.clone(), o.clone()]);
                 }
@@ -68,16 +79,24 @@ impl Patch {
             }
         }
 
-        rv
+        Ok(rv)
     }
 
-    pub fn branch_reprs(&self) -> Vec<String> {
-        let branches = Self::get_branches("out".into(), &self.edges);
-        branches.into_iter().map(|b| b.join("-->")).collect()
+    pub fn branch_reprs(&self) -> anyhow::Result<Vec<String>> {
+        let branches = Self::get_branches("out".into(), &self.edges)?;
+        Ok(branches.into_iter().map(|b| b.join("-->")).collect())
     }
 
-    fn create_subnet(&self, from: &str, to: &str) -> anyhow::Result<Net> {
-        let mut net = Net::new(1, 1);
+    fn parse_node_name(n: &String) -> anyhow::Result<(String, usize)> {
+        let rv = match n.split_once(":") {
+            Some((n, ch)) => (n.to_string(), ch.parse()?),
+            None => (n.to_string(), 0)
+        };
+        Ok(rv)
+    }
+
+    pub fn create_net(&self) -> anyhow::Result<Net> {
+        let mut net = Net::new(2, 1);
         net.pass_through(0, 0);
 
         let mut nodes_by_id = HashMap::new();
@@ -87,25 +106,44 @@ impl Patch {
         }
 
         for (src, snk) in self.edges.iter() {
-            let src_id = nodes_by_id.get(src).cloned();
-            let snk_id = nodes_by_id.get(snk).cloned();
+            let (src, src_ch) = Self::parse_node_name(src)?;
+            let (snk, snk_ch) = Self::parse_node_name(snk)?;
+            let src_id = nodes_by_id.get(&src).cloned();
+            let snk_id = nodes_by_id.get(&snk).cloned();
+            // eprintln!("{src} -> {snk}");
 
-            match (src, snk) {
-                (from, to) if (from == from) && (to == to) => {
-                    eprintln!("{from} -> {to}");
+            match (src.as_str(), snk.as_str()) {
+                ("freq", "out") => {
                     net.pass_through(0, 0);
+                    // eprintln!("pass freq:0 to out:0");
                 },
-                (from, snk) if from == from => {
-                    eprintln!("{from} -> {snk}");
-                    net.pipe_input(snk_id.unwrap());
+                ("ctl", "out") => {
+                    net.pass_through(1, 0);
+                    // eprintln!("pass ctl:0 to out:0");
                 },
-                (src, to) if to == to => {
-                    eprintln!("{src} -> {to}");
-                    net.pipe_output(src_id.unwrap());
+                ("freq", _) => {
+                    if let Some(snk_id) = snk_id {
+                        net.set_source(snk_id, snk_ch, Source::Global(0));
+                        // eprintln!("pass freq:0 to {snk}:{snk_ch}");
+                    } // TODO: otherwise error
                 },
-                (src, snk) => {
-                    eprintln!("{src} -> {snk}");
-                    net.pipe_all(src_id.unwrap(), snk_id.unwrap());
+                ("ctl", _) => {
+                    if let Some(snk_id) = snk_id {
+                        net.set_source(snk_id, snk_ch, Source::Global(1));
+                        // eprintln!("pass ctl:0 to {snk}:{snk_ch}");
+                    } // TODO: otherwise error
+                },
+                (_, "out") => {
+                    if let Some(src_id) = src_id {
+                        net.pipe_output(src_id);
+                        // eprintln!("pass {src}: to out:");
+                    }
+                },
+                _ => {
+                    if let Some((src_id, snk_id)) = src_id.zip(snk_id) {
+                        net.set_source(snk_id, snk_ch, Source::Local(src_id, src_ch));
+                        // eprintln!("pass {src}:{src_ch} to {snk}:{snk_ch}");
+                    }
                 },
             }
 
@@ -113,23 +151,23 @@ impl Patch {
         Ok(net)
     }
 
-    pub fn create_nets(&self) -> anyhow::Result<(Net, Net)> {
-        let freq_net = self.create_subnet("freq", "out")?;
-        //let freq_net = unit::<U1, U1>(Box::new(freq_net));
-        //let freq_net = net.push(Box::new(freq_net));
-        //net.set_source(freq_net, 0, Source::Global(0));
+    // pub fn create_net(&self) -> anyhow::Result<Net> {
+    //     let freq_net = self.create_subnet("freq", "out")?;
+    //     //let freq_net = unit::<U1, U1>(Box::new(freq_net));
+    //     //let freq_net = net.push(Box::new(freq_net));
+    //     //net.set_source(freq_net, 0, Source::Global(0));
 
-        let ctl_net = self.create_subnet("ctl", "out")?;
-        //let ctl_net = unit::<U1, U1>(Box::new(ctl_net));
-        //let ctl_net = net.push(Box::new(ctl_net));
-        //net.set_source(ctl_net, 1, Source::Global(1));
+    //     let ctl_net = self.create_subnet("ctl", "out")?;
+    //     //let ctl_net = unit::<U1, U1>(Box::new(ctl_net));
+    //     //let ctl_net = net.push(Box::new(ctl_net));
+    //     //net.set_source(ctl_net, 1, Source::Global(1));
 
-        //let pass_node = net.push(Box::new(multipass()));
-        //net.set_source(pass_node, 0, Source::Global(1));
+    //     //let pass_node = net.push(Box::new(multipass()));
+    //     //net.set_source(pass_node, 0, Source::Global(1));
 
-        //net = net >> (freq_net | ctl_net) >> 
-        //net.check();
+    //     //net = net >> (freq_net | ctl_net) >> 
+    //     //net.check();
 
-        Ok((freq_net, ctl_net))
-    }
+    //     Ok((freq_net, ctl_net))
+    // }
 }
