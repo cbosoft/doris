@@ -18,7 +18,7 @@ pub enum PatchNode {
     SpecifiedSquare { freq: f32 },
 
     // Sample
-    Sample { path: String },
+    Sample { path: String, looped: bool },
 
     // Noise
     WhiteNoise,
@@ -54,11 +54,11 @@ impl PatchNode {
             Self::SpecifiedSquare { freq }  => { net.push(Box::new(square_hz(*freq))) },
 
             // Sample
-            Self::Sample { path }           => {
+            Self::Sample { path, looped }           => {
                 let wave = Wave::load(path)?;
                 let wave = Arc::new(wave);
                 net.push(Box::new(
-                    wavech(&wave, 0, Some(0))
+                    wavech(&wave, 0, if *looped { Some(0) } else { None })
                 ))
             }
 
@@ -106,14 +106,18 @@ impl Patch {
         nodes.insert("osc1".into(), PatchNode::Saw);
         nodes.insert("flanger".into(), PatchNode::FlangerSin { strength: 0.5, min_delay: 0.005, max_delay: 0.01, sin_freq: 0.1 });
         nodes.insert("adsr".into(), PatchNode::ADSR { attack: 1.0, decay: 0.5, sustain: 0.5, release: 0.5 });
+        nodes.insert("kick".into(), PatchNode::Sample { path: "kick.wav".into(), looped: false });
         nodes.insert("mux".into(), PatchNode::Mux);
+        nodes.insert("add".into(), PatchNode::SumChannels);
         let mut edges = Vec::new();
         edges.push(("freq".into(), "osc1".into()));
         edges.push(("osc1".into(), "flanger".into()));
         edges.push(("flanger".into(), "mux:0".into()));
         edges.push(("ctl".into(), "adsr".into()));
         edges.push(("adsr".into(), "mux:1".into()));
-        edges.push(("mux".into(), "out".into()));
+        edges.push(("mux".into(), "add:0".into()));
+        edges.push(("kick".into(), "add:1".into()));
+        edges.push(("add".into(), "out".into()));
         Self { nodes, edges }
     }
 
