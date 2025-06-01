@@ -1,11 +1,19 @@
 use std::time::Duration;
+use std::io::{Write, stdout};
 
+use crossterm::execute;
+use crossterm::event::{
+    KeyboardEnhancementFlags,
+    PushKeyboardEnhancementFlags,
+    PopKeyboardEnhancementFlags
+};
 use fundsp::hacker::*;
 use ratatui::{layout::{Constraint, Direction, Layout, Rect}, widgets::{Block, Borders, Tabs, Widget}, Frame};
 use crossterm::{event, event::*};
 use crossterm::event::{KeyCode, KeyEventKind};
 
 use crate::{command_box::CommandBox, event_handler::EventHandler, patch::Patch, sequence::Sequence, track::Track};
+use crate::keyboard::Keyboard;
 use crate::frame_renderable::FrameRenderable;
 
 
@@ -78,6 +86,7 @@ pub struct App {
     patch: Patch,
     sequence: Sequence,
     cbox: CommandBox,
+    kb: Keyboard,
     mode: Mode,
 }
 
@@ -86,11 +95,15 @@ impl App {
     pub fn new(net: Net) -> Self {
         let mut cbox = CommandBox::new();
         cbox.set_autocomplete(AppCommand::list_commands());
-        Self { cbox, track: Track::new(), patch: Patch::new(), sequence: Sequence::new(), net, mode: Mode::Command }
+        Self { cbox, kb: Keyboard::new(), track: Track::new(), patch: Patch::new(), sequence: Sequence::new(), net, mode: Mode::Command }
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
         let mut term = ratatui::init();
+
+        let mut stdout = stdout();
+        execute!(stdout, PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)).unwrap();
+        execute!(stdout, PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::REPORT_EVENT_TYPES)).unwrap();
 
         loop {
             term.draw(|f| {
@@ -169,15 +182,20 @@ impl App {
     }
 
     fn run_mode_play(&mut self) -> anyhow::Result<bool> {
-        // get input from keyboard
-        // play it?
+        if self.kb.is_finished() {
+            self.mode = Mode::Command;
+        }
+
+        let events = self.kb.get_events();
+        // TODO
+
         Ok(false)
     }
 
     fn selected<'a>(&'a mut self) -> &'a mut dyn EventHandler {
         match self.mode {
             Mode::Command => &mut self.cbox,
-            Mode::Play => &mut self.cbox, // TODO
+            Mode::Play => &mut self.kb,
         }
     }
 
@@ -215,6 +233,9 @@ impl App {
 impl Drop for App {
     fn drop(&mut self) {
         ratatui::restore();
+        let mut stdout = stdout();
+        let _ = execute!(stdout, PopKeyboardEnhancementFlags);
+        let _ = execute!(stdout, PopKeyboardEnhancementFlags);
     }
 }
 
@@ -224,16 +245,16 @@ impl FrameRenderable for App {
         let [workspace, _, bottom] = Layout::new(Direction::Vertical, vec![
                 Constraint::Min(50),
                 Constraint::Length(1),
-                Constraint::Max(10),
+                Constraint::Min(25),
             ])
             .areas(area)
             ;
 
 
         let [_, cli, _] = Layout::new(Direction::Horizontal, vec![
-                Constraint::Min(1),
+                Constraint::Min(0),
                 Constraint::Percentage(50),
-                Constraint::Min(1),
+                Constraint::Min(0),
             ])
             .areas(bottom);
 
@@ -247,8 +268,8 @@ impl FrameRenderable for App {
         // tabs.render(tab_area, frame.buffer_mut());
 
         match self.mode {
-            Mode::Command => { self.cbox.draw_into(frame, cli); },
-            Mode::Play => { /*self.kb.draw_into(frame, bottom); */ }
+            Mode::Command => { self.cbox.draw_into(frame, bottom); },
+            Mode::Play => { self.kb.draw_into(frame, bottom); }
         }
     }
 }

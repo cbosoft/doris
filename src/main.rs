@@ -2,6 +2,7 @@ mod app;
 mod command_box;
 mod event_handler;
 mod frame_renderable;
+mod keyboard;
 mod patch;
 mod sequence;
 mod track;
