@@ -13,3 +13,9 @@ pub struct SequenceLayer {
 pub struct Sequence {
     layers: HashMap<String, SequenceLayer>
 }
+
+impl Sequence {
+    pub fn new() -> Self {
+        Self { layers: HashMap::new() }
+    }
+}

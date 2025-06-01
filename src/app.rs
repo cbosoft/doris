@@ -5,7 +5,7 @@ use ratatui::{layout::{Constraint, Direction, Layout, Rect}, widgets::{Block, Bo
 use crossterm::{event, event::*};
 use crossterm::event::{KeyCode, KeyEventKind};
 
-use crate::{command_box::CommandBox, event_handler::EventHandler, track::Track};
+use crate::{command_box::CommandBox, event_handler::EventHandler, patch::Patch, sequence::Sequence, track::Track};
 use crate::frame_renderable::FrameRenderable;
 
 
@@ -63,8 +63,8 @@ impl TryFrom<&str> for AppCommand {
 pub struct App {
     net: Net,
     track: Track,
-    current_patch: Option<String>,
-    current_sequence: Option<String>,
+    patch: Patch,
+    sequence: Sequence,
     cbox: CommandBox,
 }
 
@@ -73,7 +73,7 @@ impl App {
     pub fn new(net: Net) -> Self {
         let mut cbox = CommandBox::new();
         cbox.set_autocomplete(AppCommand::list_commands());
-        Self { cbox, track: Track::new(), current_patch: None, current_sequence: None, net }
+        Self { cbox, track: Track::new(), patch: Patch::new(), sequence: Sequence::new(), net, mode: Mode::Command }
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
