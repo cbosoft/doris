@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::time::Duration;
 use std::io::{Write, stdout};
 
@@ -7,13 +8,14 @@ use crossterm::event::{
     PushKeyboardEnhancementFlags,
     PopKeyboardEnhancementFlags
 };
+use fundsp::funutd::Rnd;
 use fundsp::hacker::*;
 use ratatui::{layout::{Constraint, Direction, Layout, Rect}, widgets::{Block, Borders, Tabs, Widget}, Frame};
 use crossterm::{event, event::*};
 use crossterm::event::{KeyCode, KeyEventKind};
 
 use crate::{command_box::CommandBox, event_handler::EventHandler, patch::Patch, sequence::Sequence, track::Track};
-use crate::keyboard::Keyboard;
+use crate::keyboard::{Keyboard, Note, NoteEvent, NoteEventKind};
 use crate::frame_renderable::FrameRenderable;
 
 
@@ -81,7 +83,10 @@ enum Mode {
 
 
 pub struct App {
+    rng: Rnd,
     net: Net,
+    seq: Sequencer,
+    seq_events: HashMap<(Note, i32), EventId>,
     track: Track,
     patch: Patch,
     sequence: Sequence,
@@ -92,10 +97,27 @@ pub struct App {
 
 
 impl App {
-    pub fn new(net: Net) -> Self {
+    pub fn new(mut net: Net, sample_rate: f64) -> Self {
+        let mut seq = Sequencer::new(false, 1);
+        seq.set_sample_rate(sample_rate);
+        net.chain(Box::new(seq.backend()));
+        net.chain(Box::new(pan(0.0)));
+        net.commit();
+
         let mut cbox = CommandBox::new();
         cbox.set_autocomplete(AppCommand::list_commands());
-        Self { cbox, kb: Keyboard::new(), track: Track::new(), patch: Patch::new(), sequence: Sequence::new(), net, mode: Mode::Command }
+        Self {
+            rng: Rnd::from_u64(0),
+            cbox,
+            kb: Keyboard::new(),
+            track: Track::new(),
+            patch: Patch::new(),
+            sequence: Sequence::new(),
+            net,
+            seq,
+            seq_events: HashMap::new(),
+            mode: Mode::Play
+        }
     }
 
     pub fn run(mut self) -> anyhow::Result<()> {
@@ -188,6 +210,36 @@ impl App {
 
         let events = self.kb.get_events();
         // TODO
+        for event in events {
+            match event {
+                NoteEvent { kind: NoteEventKind::Start, note, octave } => {
+                    let k = (note, octave);
+                    if !self.seq_events.contains_key(&k) {
+                        let f = note.to_freq_octave(octave);
+                        let pnet = self.patch.create_net().unwrap();
+                        let pnet = unit::<U2, U1>(Box::new(pnet));
+                        let mut unit = Box::new(
+                            (constant(f) | constant(1.0)) >> pnet
+                        );
+                        unit.ping(false, AttoHash::new(self.rng.u64()));
+                        let event_id = self.seq.push_relative(
+                            0.0,
+                            f64::INFINITY,
+                            Fade::Power,
+                            0.0,
+                            0.0,
+                            unit,
+                        );
+                        self.seq_events.insert(k, event_id);
+                    }
+                },
+                NoteEvent { kind: NoteEventKind::Stop, note, octave } => {
+                    if let Some(event_id) = self.seq_events.remove(&(note, octave)) {
+                        self.seq.edit_relative(event_id, 0.0, 0.0);
+                    }
+                },
+            }
+        }
 
         Ok(false)
     }

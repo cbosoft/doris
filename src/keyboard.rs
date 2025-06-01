@@ -14,6 +14,7 @@ pub enum NoteEventKind {
     Start, Stop
 }
 
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub enum Note {
     A, ASharp, B, C, CSharp, D, DSharp, E, F, FSharp, G, GSharp, 
 }
@@ -44,9 +45,9 @@ impl Note {
 }
 
 pub struct NoteEvent {
-    kind: NoteEventKind,
-    note: Note,
-    octave: i32,
+    pub kind: NoteEventKind,
+    pub note: Note,
+    pub octave: i32,
 }
 
 pub struct Keyboard {
